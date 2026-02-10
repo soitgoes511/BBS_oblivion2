@@ -1,0 +1,35 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: bbs-oblivion2:latest
+    container_name: bbs-oblivion2-app
+    ports:
+      - "8080:8080"
+    environment:
+      NODE_ENV: production
+      PORT: 8080
+      SESSION_SECRET: change-this-before-production
+      DATABASE_URL: postgresql://bbs:bbs@db:5432/bbs_oblivion2
+      SYSOP_PASSWORD: oblivion2
+    depends_on:
+      - db
+    volumes:
+      - uploads_data:/app/uploads
+
+  db:
+    image: postgres:16-alpine
+    container_name: bbs-oblivion2-db
+    environment:
+      POSTGRES_DB: bbs_oblivion2
+      POSTGRES_USER: bbs
+      POSTGRES_PASSWORD: bbs
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:
+  uploads_data:

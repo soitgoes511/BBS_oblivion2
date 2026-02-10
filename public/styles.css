@@ -158,6 +158,13 @@ kbd {
   background: #102518;
 }
 
+.inline-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
 @media (max-width: 700px) {
   .screen {
     margin: 0;
