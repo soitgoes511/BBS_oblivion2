@@ -214,20 +214,46 @@ app.post("/api/auth/logout", (req, res) => {
   });
 });
 
+app.get("/api/message-topics", requireAuth, async (_req, res) => {
+  const result = await pool.query(
+    "SELECT id, name, description, created_at FROM message_topics ORDER BY lower(name)"
+  );
+  res.json({ items: result.rows });
+});
+
+app.get("/api/file-categories", requireAuth, async (_req, res) => {
+  const result = await pool.query(
+    "SELECT id, name, description, created_at FROM file_categories ORDER BY lower(name)"
+  );
+  res.json({ items: result.rows });
+});
+
 app.get("/api/messages", requireAuth, async (_req, res) => {
   const result = await pool.query(
-    "SELECT id, author_handle, title, body, created_at FROM posts ORDER BY created_at DESC LIMIT 200"
+    `SELECT p.id, p.author_handle, p.title, p.body, p.created_at,
+            p.topic_id, t.name AS topic_name
+     FROM posts p
+     LEFT JOIN message_topics t ON t.id = p.topic_id
+     ORDER BY p.created_at DESC
+     LIMIT 300`
   );
   res.json({ items: result.rows });
 });
 
 app.post("/api/messages", requireAuth, async (req, res) => {
-  const { title, body } = req.body;
-  if (!title || !body) return res.status(400).json({ error: "Title and body are required." });
+  const { title, body, topicId } = req.body;
+  if (!title || !body || !topicId) {
+    return res.status(400).json({ error: "Topic, title, and body are required." });
+  }
+
+  const topic = await pool.query("SELECT id FROM message_topics WHERE id = $1", [topicId]);
+  if (!topic.rowCount) {
+    return res.status(400).json({ error: "Invalid topic selected." });
+  }
 
   await pool.query(
-    "INSERT INTO posts (author_user_id, author_handle, title, body) VALUES ($1, $2, $3, $4)",
-    [req.user.id, req.user.handle, title, body]
+    "INSERT INTO posts (author_user_id, author_handle, title, body, topic_id) VALUES ($1, $2, $3, $4, $5)",
+    [req.user.id, req.user.handle, title, body, topicId]
   );
 
   res.status(201).json({ ok: true });
@@ -254,7 +280,12 @@ app.post("/api/directory", requireAuth, async (req, res) => {
 
 app.get("/api/files", requireAuth, async (_req, res) => {
   const result = await pool.query(
-    "SELECT id, original_name, mime_type, byte_size, description, uploader_handle, created_at FROM files ORDER BY created_at DESC LIMIT 200"
+    `SELECT f.id, f.original_name, f.mime_type, f.byte_size, f.description, f.uploader_handle,
+            f.created_at, f.category_id, c.name AS category_name
+     FROM files f
+     LEFT JOIN file_categories c ON c.id = f.category_id
+     ORDER BY f.created_at DESC
+     LIMIT 300`
   );
   res.json({ items: result.rows });
 });
@@ -265,10 +296,20 @@ app.post("/api/files", requireAuth, upload.single("file"), async (req, res) => {
   }
 
   const desc = req.body.description || null;
+  const categoryId = req.body.categoryId || null;
+  if (!categoryId) {
+    return res.status(400).json({ error: "File category is required." });
+  }
+
+  const category = await pool.query("SELECT id FROM file_categories WHERE id = $1", [categoryId]);
+  if (!category.rowCount) {
+    return res.status(400).json({ error: "Invalid file category selected." });
+  }
+
   await pool.query(
     `INSERT INTO files
-      (stored_name, original_name, mime_type, byte_size, description, uploader_user_id, uploader_handle)
-      VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      (stored_name, original_name, mime_type, byte_size, description, uploader_user_id, uploader_handle, category_id)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
     [
       req.file.filename,
       req.file.originalname,
@@ -276,7 +317,8 @@ app.post("/api/files", requireAuth, upload.single("file"), async (req, res) => {
       req.file.size,
       desc,
       req.user.id,
-      req.user.handle
+      req.user.handle,
+      categoryId
     ]
   );
 
@@ -382,6 +424,48 @@ app.post("/api/sysop/applications/:id/reject", requireAuth, requireSysop, async 
   }
 
   res.json({ ok: true });
+});
+
+app.post("/api/sysop/topics", requireAuth, requireSysop, async (req, res) => {
+  const name = String(req.body.name || "").trim();
+  const description = String(req.body.description || "").trim();
+  if (!name) {
+    return res.status(400).json({ error: "Topic name is required." });
+  }
+
+  try {
+    const result = await pool.query(
+      "INSERT INTO message_topics (name, description, created_by_user_id) VALUES ($1, $2, $3) RETURNING id, name, description",
+      [name, description || null, req.user.id]
+    );
+    res.status(201).json({ item: result.rows[0] });
+  } catch (err) {
+    if (String(err.code) === "23505") {
+      return res.status(409).json({ error: "Topic already exists." });
+    }
+    throw err;
+  }
+});
+
+app.post("/api/sysop/file-categories", requireAuth, requireSysop, async (req, res) => {
+  const name = String(req.body.name || "").trim();
+  const description = String(req.body.description || "").trim();
+  if (!name) {
+    return res.status(400).json({ error: "Category name is required." });
+  }
+
+  try {
+    const result = await pool.query(
+      "INSERT INTO file_categories (name, description, created_by_user_id) VALUES ($1, $2, $3) RETURNING id, name, description",
+      [name, description || null, req.user.id]
+    );
+    res.status(201).json({ item: result.rows[0] });
+  } catch (err) {
+    if (String(err.code) === "23505") {
+      return res.status(409).json({ error: "Category already exists." });
+    }
+    throw err;
+  }
 });
 
 app.use((err, _req, res, _next) => {

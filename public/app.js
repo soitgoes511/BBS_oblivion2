@@ -514,9 +514,11 @@ async function renderMessages() {
   setPrompt("Post and read community messages.");
 
   let items = [];
+  let topics = [];
   try {
-    const data = await api("/api/messages");
-    items = data.items || [];
+    const [msgData, topicData] = await Promise.all([api("/api/messages"), api("/api/message-topics")]);
+    items = msgData.items || [];
+    topics = topicData.items || [];
   } catch (err) {
     app.innerHTML = `<div class="card"><p class="error">${escapeHtml(err.message)}</p>${menuBackButton()}</div>`;
     document.getElementById("backMain").onclick = () => {
@@ -531,6 +533,7 @@ async function renderMessages() {
       (p) => `
     <div class="card">
       <h3>${escapeHtml(p.title)}</h3>
+      <p><span class="pill">${escapeHtml(p.topic_name || "General")}</span></p>
       <p><span class="pill">${escapeHtml(p.author_handle)}</span> ${escapeHtml(formatDate(p.created_at))}</p>
       <p>${escapeHtml(p.body)}</p>
     </div>
@@ -538,10 +541,16 @@ async function renderMessages() {
     )
     .join("");
 
+  const topicOptions = topics
+    .map((t) => `<option value="${escapeHtml(t.id)}">${escapeHtml(t.name)}</option>`)
+    .join("");
+
   app.innerHTML = `
     ${renderAnsi("msg")}
     <div class="card">
       <h2>Write Post</h2>
+      <label>Topic</label>
+      <select id="pTopic">${topicOptions}</select>
       <label>Title</label>
       <input id="pTitle" maxlength="80" />
       <label>Message</label>
@@ -555,6 +564,11 @@ async function renderMessages() {
     <div class="list">${postHtml || "<p>No posts yet.</p>"}</div>
   `;
 
+  if (!topics.length) {
+    showError(document.getElementById("msgPostStatus"), "No topics exist yet. Ask SYSOP to create one.");
+    document.getElementById("addPost").disabled = true;
+  }
+
   document.getElementById("addPost").onclick = async () => {
     const status = document.getElementById("msgPostStatus");
     try {
@@ -562,6 +576,7 @@ async function renderMessages() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          topicId: document.getElementById("pTopic").value,
           title: document.getElementById("pTitle").value.trim(),
           body: document.getElementById("pBody").value.trim()
         })
@@ -692,9 +707,11 @@ async function renderFiles() {
   setPrompt("Upload/download files with server-backed storage.");
 
   let items = [];
+  let categories = [];
   try {
-    const data = await api("/api/files");
-    items = data.items || [];
+    const [fileData, categoryData] = await Promise.all([api("/api/files"), api("/api/file-categories")]);
+    items = fileData.items || [];
+    categories = categoryData.items || [];
   } catch (err) {
     app.innerHTML = `<div class="card"><p class="error">${escapeHtml(err.message)}</p>${menuBackButton()}</div>`;
     document.getElementById("backMain").onclick = () => {
@@ -709,6 +726,7 @@ async function renderFiles() {
       (file) => `
     <div class="card">
       <h3>${escapeHtml(file.original_name)}</h3>
+      <p><span class="pill">${escapeHtml(file.category_name || "General Uploads")}</span></p>
       <p><span class="pill">By</span> ${escapeHtml(file.uploader_handle)}
          <span class="pill">Size</span> ${Math.round(Number(file.byte_size) / 1024)} KB
          <span class="pill">When</span> ${escapeHtml(formatDate(file.created_at))}</p>
@@ -719,10 +737,16 @@ async function renderFiles() {
     )
     .join("");
 
+  const categoryOptions = categories
+    .map((c) => `<option value="${escapeHtml(c.id)}">${escapeHtml(c.name)}</option>`)
+    .join("");
+
   app.innerHTML = `
     ${renderAnsi("files")}
     <div class="card">
       <h2>Upload File</h2>
+      <label>Category</label>
+      <select id="fCategory">${categoryOptions}</select>
       <label>Description</label>
       <input id="fDesc" maxlength="120" />
       <label>Select file</label>
@@ -737,6 +761,11 @@ async function renderFiles() {
     <div class="list">${fileRows || "<p>No files uploaded yet.</p>"}</div>
   `;
 
+  if (!categories.length) {
+    showError(document.getElementById("fileStatus"), "No file categories exist yet. Ask SYSOP to create one.");
+    document.getElementById("fUpload").disabled = true;
+  }
+
   document.getElementById("fUpload").onclick = async () => {
     const status = document.getElementById("fileStatus");
     const input = document.getElementById("fInput");
@@ -746,6 +775,7 @@ async function renderFiles() {
     }
 
     const form = new FormData();
+    form.append("categoryId", document.getElementById("fCategory").value);
     form.append("description", document.getElementById("fDesc").value.trim());
     form.append("file", input.files[0]);
 
@@ -774,9 +804,17 @@ async function renderSysop() {
   setPrompt("Approve or reject new users.");
 
   let items = [];
+  let topics = [];
+  let categories = [];
   try {
-    const data = await api("/api/sysop/applications");
-    items = data.items || [];
+    const [appData, topicData, categoryData] = await Promise.all([
+      api("/api/sysop/applications"),
+      api("/api/message-topics"),
+      api("/api/file-categories")
+    ]);
+    items = appData.items || [];
+    topics = topicData.items || [];
+    categories = categoryData.items || [];
   } catch (err) {
     app.innerHTML = `<div class="card"><p class="error">${escapeHtml(err.message)}</p>${menuBackButton()}</div>`;
     document.getElementById("backMain").onclick = () => {
@@ -812,6 +850,30 @@ async function renderSysop() {
       ${items.length ? "" : "<p>No pending applications.</p>"}
       <div class="list">${appRows}</div>
       <p id="sysopStatus"></p>
+    </div>
+    <div class="card">
+      <h2>Message Topics</h2>
+      <p class="muted">Current: ${topics.map((t) => escapeHtml(t.name)).join(", ") || "None"}</p>
+      <label>New Topic Name</label>
+      <input id="newTopicName" maxlength="80" />
+      <label>Description</label>
+      <input id="newTopicDesc" maxlength="200" />
+      <div class="inline-actions">
+        <button id="createTopicBtn">Create Topic</button>
+      </div>
+      <p id="topicStatus"></p>
+    </div>
+    <div class="card">
+      <h2>File Categories</h2>
+      <p class="muted">Current: ${categories.map((c) => escapeHtml(c.name)).join(", ") || "None"}</p>
+      <label>New Category Name</label>
+      <input id="newCategoryName" maxlength="80" />
+      <label>Description</label>
+      <input id="newCategoryDesc" maxlength="200" />
+      <div class="inline-actions">
+        <button id="createCategoryBtn">Create Category</button>
+      </div>
+      <p id="categoryStatus"></p>
       <div class="inline-actions">${menuBackButton()}</div>
     </div>
   `;
@@ -840,6 +902,42 @@ async function renderSysop() {
       }
     };
   });
+
+  document.getElementById("createTopicBtn").onclick = async () => {
+    const statusEl = document.getElementById("topicStatus");
+    try {
+      await api("/api/sysop/topics", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: document.getElementById("newTopicName").value.trim(),
+          description: document.getElementById("newTopicDesc").value.trim()
+        })
+      });
+      showSuccess(statusEl, "Topic created.");
+      renderSysop();
+    } catch (err) {
+      showError(statusEl, err.message);
+    }
+  };
+
+  document.getElementById("createCategoryBtn").onclick = async () => {
+    const statusEl = document.getElementById("categoryStatus");
+    try {
+      await api("/api/sysop/file-categories", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: document.getElementById("newCategoryName").value.trim(),
+          description: document.getElementById("newCategoryDesc").value.trim()
+        })
+      });
+      showSuccess(statusEl, "Category created.");
+      renderSysop();
+    } catch (err) {
+      showError(statusEl, err.message);
+    }
+  };
 
   document.getElementById("backMain").onclick = () => {
     session.view = "main";

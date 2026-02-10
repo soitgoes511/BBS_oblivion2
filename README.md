@@ -12,6 +12,7 @@ Features:
 - Profile editing
 - Session-based authentication
 - ANSI pack loader with color parsing and animated draw-in (`public/ansi/*.ans`)
+- Sysop-managed message topics and file categories
 
 ## Tech Stack
 

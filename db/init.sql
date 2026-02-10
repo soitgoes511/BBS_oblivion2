@@ -35,6 +35,17 @@ CREATE TABLE IF NOT EXISTS posts (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS message_topics (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name VARCHAR(80) UNIQUE NOT NULL,
+  description TEXT,
+  created_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+ALTER TABLE posts
+  ADD COLUMN IF NOT EXISTS topic_id UUID REFERENCES message_topics(id) ON DELETE SET NULL;
+
 CREATE TABLE IF NOT EXISTS bbs_directory (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name VARCHAR(100) NOT NULL,
@@ -56,6 +67,45 @@ CREATE TABLE IF NOT EXISTS files (
   uploader_handle VARCHAR(20) NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+CREATE TABLE IF NOT EXISTS file_categories (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name VARCHAR(80) UNIQUE NOT NULL,
+  description TEXT,
+  created_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+ALTER TABLE files
+  ADD COLUMN IF NOT EXISTS category_id UUID REFERENCES file_categories(id) ON DELETE SET NULL;
+
+INSERT INTO message_topics (name, description)
+SELECT 'General', 'General board chatter and announcements'
+WHERE NOT EXISTS (SELECT 1 FROM message_topics WHERE name = 'General');
+
+INSERT INTO message_topics (name, description)
+SELECT 'Tech Talk', 'Hardware, software, and modem-era stories'
+WHERE NOT EXISTS (SELECT 1 FROM message_topics WHERE name = 'Tech Talk');
+
+INSERT INTO file_categories (name, description)
+SELECT 'General Uploads', 'Mixed files and shareware-style uploads'
+WHERE NOT EXISTS (SELECT 1 FROM file_categories WHERE name = 'General Uploads');
+
+INSERT INTO file_categories (name, description)
+SELECT 'ANSI Art', 'Art packs, logos, and textmode graphics'
+WHERE NOT EXISTS (SELECT 1 FROM file_categories WHERE name = 'ANSI Art');
+
+UPDATE posts
+SET topic_id = (
+  SELECT id FROM message_topics WHERE name = 'General' LIMIT 1
+)
+WHERE topic_id IS NULL;
+
+UPDATE files
+SET category_id = (
+  SELECT id FROM file_categories WHERE name = 'General Uploads' LIMIT 1
+)
+WHERE category_id IS NULL;
 
 INSERT INTO posts (author_handle, title, body)
 SELECT 'SYSOP', 'Welcome to Oblivion/2 Web', 'Drop a line and relive the dial-up era.'
