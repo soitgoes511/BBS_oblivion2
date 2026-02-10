@@ -16,6 +16,11 @@ const NODE_ENV = process.env.NODE_ENV || "development";
 const SESSION_SECRET = process.env.SESSION_SECRET || "change-me-session-secret";
 const DATABASE_URL =
   process.env.DATABASE_URL || "postgresql://bbs:bbs@localhost:5432/bbs_oblivion2";
+const DB_INIT_RETRIES = Number(process.env.DB_INIT_RETRIES || 20);
+const DB_INIT_RETRY_DELAY_MS = Number(process.env.DB_INIT_RETRY_DELAY_MS || 3000);
+const SESSION_COOKIE_SECURE = process.env.SESSION_COOKIE_SECURE
+  ? String(process.env.SESSION_COOKIE_SECURE).toLowerCase() === "true"
+  : NODE_ENV === "production";
 
 const pool = new Pool({ connectionString: DATABASE_URL });
 
@@ -44,13 +49,14 @@ app.use(
   session({
     store: new pgSession({
       pool,
-      tableName: "session"
+      tableName: "session",
+      createTableIfMissing: true
     }),
     secret: SESSION_SECRET,
     resave: false,
     saveUninitialized: false,
     cookie: {
-      secure: NODE_ENV === "production",
+      secure: SESSION_COOKIE_SECURE,
       maxAge: 1000 * 60 * 60 * 24 * 7,
       sameSite: "lax"
     }
@@ -70,6 +76,22 @@ async function initDb() {
       "INSERT INTO users (handle, password_hash, role, approved, bio) VALUES ($1, $2, $3, true, $4)",
       ["SYSOP", passHash, "sysop", "Keeper of the board"]
     );
+  }
+}
+
+async function initDbWithRetry() {
+  for (let attempt = 1; attempt <= DB_INIT_RETRIES; attempt += 1) {
+    try {
+      await initDb();
+      return;
+    } catch (err) {
+      if (attempt === DB_INIT_RETRIES) throw err;
+      console.error(
+        `Database initialization attempt ${attempt}/${DB_INIT_RETRIES} failed. Retrying in ${DB_INIT_RETRY_DELAY_MS}ms.`,
+        err.message || err
+      );
+      await new Promise((resolve) => setTimeout(resolve, DB_INIT_RETRY_DELAY_MS));
+    }
   }
 }
 
@@ -368,7 +390,7 @@ app.use((err, _req, res, _next) => {
   res.status(500).json({ error: "Internal server error." });
 });
 
-initDb()
+initDbWithRetry()
   .then(() => {
     app.listen(PORT, () => {
       console.log(`BBS server listening on http://0.0.0.0:${PORT}`);
