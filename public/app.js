@@ -51,6 +51,18 @@ const ansiArt = {
 `
 };
 
+const ANSI_PACKS = {
+  splash: ["splash_main.ans", "splash_alt.ans"],
+  menu: ["menu_main.ans"],
+  msg: ["messages_main.ans"],
+  dir: ["directory_main.ans"],
+  files: ["files_main.ans"],
+  sysop: ["sysop_main.ans"]
+};
+
+const ansiFileCache = new Map();
+const ansiSelectedPack = new Map();
+
 let session = {
   user: null,
   view: "home",
@@ -87,7 +99,166 @@ function formatDate(value) {
 }
 
 function renderAnsi(key) {
-  return `<pre class="ansi">${ansiArt[key]}</pre>`;
+  return `<pre class="ansi ansi-host" data-ansi-key="${key}">${escapeHtml(ansiArt[key] || "")}</pre>`;
+}
+
+function pickAnsiFile(key) {
+  const pack = ANSI_PACKS[key];
+  if (!pack || !pack.length) return null;
+  if (ansiSelectedPack.has(key)) return ansiSelectedPack.get(key);
+  const pick = pack[Math.floor(Math.random() * pack.length)];
+  ansiSelectedPack.set(key, pick);
+  return pick;
+}
+
+async function loadAnsiRaw(key) {
+  const file = pickAnsiFile(key);
+  if (!file) return ansiArt[key] || "";
+  if (ansiFileCache.has(file)) return ansiFileCache.get(file);
+
+  const response = await fetch(`/ansi/${file}`, { credentials: "same-origin" });
+  if (!response.ok) {
+    throw new Error(`ANSI pack missing: ${file}`);
+  }
+  const body = await response.text();
+  const raw = body.replaceAll("\\x1b", "\u001b");
+  ansiFileCache.set(file, raw);
+  return raw;
+}
+
+function ansiEscape(text) {
+  return text
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
+}
+
+function ansiToHtml(input) {
+  let i = 0;
+  let fg = null;
+  let bg = null;
+  let bold = false;
+  let blink = false;
+  let openClass = "";
+  let out = "";
+
+  function currentClass() {
+    const classes = [];
+    if (fg !== null) classes.push(`ansi-fg-${fg}`);
+    if (bg !== null) classes.push(`ansi-bg-${bg}`);
+    if (bold) classes.push("ansi-bold");
+    if (blink) classes.push("ansi-blink");
+    return classes.join(" ");
+  }
+
+  function syncSpan() {
+    const nextClass = currentClass();
+    if (nextClass === openClass) return;
+    if (openClass) out += "</span>";
+    if (nextClass) out += `<span class="${nextClass}">`;
+    openClass = nextClass;
+  }
+
+  while (i < input.length) {
+    const ch = input[i];
+    if (ch === "\u001b" && input[i + 1] === "[") {
+      const end = input.indexOf("m", i + 2);
+      if (end === -1) break;
+      const codes = input
+        .slice(i + 2, end)
+        .split(";")
+        .filter(Boolean)
+        .map((n) => Number(n));
+      if (!codes.length) codes.push(0);
+
+      for (const code of codes) {
+        if (code === 0) {
+          fg = null;
+          bg = null;
+          bold = false;
+          blink = false;
+        } else if (code === 1) {
+          bold = true;
+        } else if (code === 22) {
+          bold = false;
+        } else if (code === 5) {
+          blink = true;
+        } else if (code === 25) {
+          blink = false;
+        } else if (code >= 30 && code <= 37) {
+          fg = code;
+        } else if (code >= 90 && code <= 97) {
+          fg = code;
+        } else if (code === 39) {
+          fg = null;
+        } else if (code >= 40 && code <= 47) {
+          bg = code;
+        } else if (code >= 100 && code <= 107) {
+          bg = code;
+        } else if (code === 49) {
+          bg = null;
+        }
+      }
+
+      syncSpan();
+      i = end + 1;
+      continue;
+    }
+
+    syncSpan();
+    out += ansiEscape(ch);
+    i += 1;
+  }
+
+  if (openClass) out += "</span>";
+  return out;
+}
+
+function animateAnsi(pre, raw) {
+  const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (reducedMotion) {
+    pre.innerHTML = ansiToHtml(raw);
+    pre.classList.add("ansi-ready");
+    return;
+  }
+
+  const lines = raw.split("\n");
+  let idx = 0;
+  let frame = "";
+  pre.innerHTML = "";
+  pre.classList.add("ansi-rendering");
+
+  const step = () => {
+    if (idx >= lines.length) {
+      pre.classList.remove("ansi-rendering");
+      pre.classList.add("ansi-ready");
+      return;
+    }
+    frame += (idx === 0 ? "" : "\n") + lines[idx];
+    pre.innerHTML = ansiToHtml(frame);
+    idx += 1;
+    setTimeout(step, 22);
+  };
+  step();
+}
+
+async function hydrateAnsiInApp() {
+  const nodes = app.querySelectorAll(".ansi-host[data-ansi-key]");
+  await Promise.all(
+    Array.from(nodes).map(async (node) => {
+      if (node.dataset.ansiHydrated === "1") return;
+      const key = node.dataset.ansiKey;
+      try {
+        const raw = await loadAnsiRaw(key);
+        animateAnsi(node, raw);
+      } catch {
+        node.innerHTML = ansiToHtml(ansiArt[key] || "");
+        node.classList.add("ansi-ready");
+      } finally {
+        node.dataset.ansiHydrated = "1";
+      }
+    })
+  );
 }
 
 async function api(path, options = {}) {
@@ -122,6 +293,15 @@ function logoutLocal() {
   session.view = "home";
   render();
 }
+
+let ansiHydrateTimer = null;
+const ansiObserver = new MutationObserver(() => {
+  if (ansiHydrateTimer) clearTimeout(ansiHydrateTimer);
+  ansiHydrateTimer = setTimeout(() => {
+    hydrateAnsiInApp();
+  }, 10);
+});
+ansiObserver.observe(app, { childList: true, subtree: true });
 
 async function render() {
   if (session.view === "home") return renderHome();

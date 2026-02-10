@@ -11,6 +11,7 @@ Features:
 - File board upload/download
 - Profile editing
 - Session-based authentication
+- ANSI pack loader with color parsing and animated draw-in (`public/ansi/*.ans`)
 
 ## Tech Stack
 
