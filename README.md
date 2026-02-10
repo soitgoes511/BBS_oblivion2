@@ -67,4 +67,6 @@ podman build -t bbs-oblivion2 -f Containerfile .
 
 - Uploaded files are stored in `uploads/` and mounted via volume in `compose.yaml`.
 - For production, set a strong `SESSION_SECRET` and do not use default DB credentials.
+- For local HTTP (`localhost`), keep `SESSION_COOKIE_SECURE=false`.
+- For HTTPS deployments, set `SESSION_COOKIE_SECURE=true`.
 - The original static MVP files are preserved, but runtime frontend is now `public/` with backend APIs.

@@ -18,9 +18,8 @@ const DATABASE_URL =
   process.env.DATABASE_URL || "postgresql://bbs:bbs@localhost:5432/bbs_oblivion2";
 const DB_INIT_RETRIES = Number(process.env.DB_INIT_RETRIES || 20);
 const DB_INIT_RETRY_DELAY_MS = Number(process.env.DB_INIT_RETRY_DELAY_MS || 3000);
-const SESSION_COOKIE_SECURE = process.env.SESSION_COOKIE_SECURE
-  ? String(process.env.SESSION_COOKIE_SECURE).toLowerCase() === "true"
-  : NODE_ENV === "production";
+const SESSION_COOKIE_SECURE =
+  String(process.env.SESSION_COOKIE_SECURE || "false").toLowerCase() === "true";
 
 const pool = new Pool({ connectionString: DATABASE_URL });
 

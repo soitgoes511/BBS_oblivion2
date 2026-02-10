@@ -11,6 +11,7 @@ services:
       NODE_ENV: production
       PORT: 8080
       SESSION_SECRET: change-this-before-production
+      SESSION_COOKIE_SECURE: "false"
       DATABASE_URL: postgresql://bbs:bbs@db:5432/bbs_oblivion2
       SYSOP_PASSWORD: oblivion2
     depends_on:
